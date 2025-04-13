@@ -1,15 +1,13 @@
-#build stage
-FROM golang:alpine AS builder
-RUN apk add --no-cache git
-WORKDIR /go/src/app
-COPY . .
-RUN go get -d -v ./...
-RUN go build -o /go/bin/app -v ./...
+FROM golang:alpine
 
-#final stage
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-COPY --from=builder /go/bin/app /app
-ENTRYPOINT /app
-LABEL Name=gopherpay Version=0.0.1
-EXPOSE 3000
+WORKDIR /gopher-pay
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN go build -o ./bin/api ./cmd/api && go build -o ./bin/migrate ./cmd/migrate && chmod +x ./bin/api ./bin/migrate
+
+CMD ["./bin/api"]
+EXPOSE 8080
