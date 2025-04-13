@@ -11,6 +11,7 @@ import (
 
 	"github.com/Fadil-Tao/gopher-pay/config"
 	"github.com/Fadil-Tao/gopher-pay/db"
+	"github.com/Fadil-Tao/gopher-pay/internal/transport/rest"
 	loggers "github.com/Fadil-Tao/gopher-pay/utils/logger"
 )
 
@@ -25,7 +26,9 @@ func main() {
 	}
 	defer Conn.Close() 
 
-	mux := NewRouter() 
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthcheck", rest.HealthCheck)
 	api := http.NewServeMux()
 	api.Handle("/api/", http.StripPrefix("/api", mux))
 	
