@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/Fadil-Tao/gopher-pay/config"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func InitDb(cfg *config.ConfDB) (*sql.DB, error) {
 	dsn := "postgres://" + cfg.Username + ":" + cfg.Password + "@" + cfg.Host + ":" + strconv.Itoa(cfg.Port) + "/" + cfg.DBName
-	db, err := sql.Open("libsql", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open db %s: %s", dsn, err)
 		return nil, err
