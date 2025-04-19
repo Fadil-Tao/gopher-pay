@@ -32,7 +32,7 @@ func (u *UserRepo) Register(ctx context.Context, user model.User) error {
 		return csterr.ErrInternal
 	}
 
-	_, err = stmt.ExecContext(ctx, user.Email, user.Email, user.Name, user.Password)
+	_, err = stmt.ExecContext(ctx, user.Email, user.Name, user.Password, user.Salt)
 	if err != nil {
 		slog.Error("Error inserting data", "message", err)
 		return csterr.ErrInternal
@@ -51,7 +51,7 @@ func (u *UserRepo) IsUserExist(ctx context.Context, email string) (bool, error) 
 	query := `select count(id) from user where email = ?`
 	stmt, err := u.Db.Prepare(query)
 	if err != nil {
-		slog.Error("error preparing statement","error" ,err)
+		slog.Error("error preparing statement", "error", err)
 		return false, csterr.ErrInternal
 	}
 	defer stmt.Close()
@@ -68,6 +68,29 @@ func (u *UserRepo) DeleteProfile(ctx context.Context) error {
 	return nil
 }
 
-func (u *UserRepo) GetByEmail(ctx context.Context, email string) error {
-	return nil
+func (u *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	query := `select id,email,name,password,salt,updated_at,created_at from user where email = ?`
+	stmt, err := u.Db.Prepare(query)
+	if err != nil {
+		return nil, csterr.ErrInternal
+	}
+	defer stmt.Close()
+
+	var user *model.User
+	err = stmt.QueryRowContext(ctx, email).Scan(&user)
+	switch {
+	case err == sql.ErrNoRows : 
+		slog.Error(err.Error())
+		return nil, csterr.ErrNotFound
+	case err != nil : 
+		slog.Error(err.Error())
+		return nil, csterr.ErrInternal
+	}
+	return user, nil
 }
