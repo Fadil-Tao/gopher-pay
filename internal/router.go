@@ -1,27 +1,43 @@
 package internal
 
 import (
+	"encoding/json"
 	"net/http"
 
+	"github.com/Fadil-Tao/gopher-pay/internal/transport/middleware"
 	"github.com/Fadil-Tao/gopher-pay/internal/transport/rest"
+	"github.com/Fadil-Tao/gopher-pay/internal/usecase"
 )
 
 type RouterInstance struct {
-	UserUsecase string
-	AuthUseCase string
+	UserUsecase usecase.UserUsecase
+	AuthUseCase usecase.AuthUsecase
 }
 
-// contain centralized api route
+func NewHttpRouterInstance(UserUsecase usecase.UserUsecase, AuthUseCase usecase.AuthUsecase) *RouterInstance {
+	return &RouterInstance{
+		UserUsecase: UserUsecase,
+		AuthUseCase: AuthUseCase,
+	}
+}
+
 func (r *RouterInstance) NewRestRouter() *http.ServeMux {
 	mux := http.NewServeMux()
+	authHandler := rest.NewAuthHandler(&r.AuthUseCase)
 
-
-	userHandler := rest.NewUserHandler(r.UserUsecase)
-	authHandler := rest.NewAuthHandler(r.AuthUseCase)
-
+	// public 
 	mux.HandleFunc("GET /healthcheck", rest.HealthCheck)
 	mux.HandleFunc("POST /auth/login", authHandler.Login)
-	mux.HandleFunc("PUT /profile", userHandler.EditProfile)
+	mux.HandleFunc("POST /auth/register", authHandler.Register)
+	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
 
+	// require auth
+    mux.Handle("GET /profile", middleware.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        json.NewEncoder(w).Encode(map[string]string{"message": "this is suppossed to be a secret!!!"})
+    })))
+	mux.Handle("GET /secret", middleware.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        json.NewEncoder(w).Encode(map[string]string{"message": "this is suppossed to be a secret!!!"})
+    })))
+	
 	return mux
-}	
+}

@@ -3,12 +3,13 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/Fadil-Tao/gopher-pay/internal/model"
+	csterr "github.com/Fadil-Tao/gopher-pay/utils/errors"
+	"github.com/Fadil-Tao/gopher-pay/utils/httpresponse"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -37,7 +38,7 @@ func (a *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
 		slog.Error(err.Error())
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		httpresponse.WriteErrorResponse(w, "error", nil , "invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -46,20 +47,27 @@ func (a *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	err := validate.Struct(newUser)
 	if err != nil {
 		slog.Error(err.Error())
-		errors := err.(validator.ValidationErrors)
-		http.Error(w, fmt.Sprintf("validation error : %s", errors), http.StatusBadRequest)
+		fieldErrors := httpresponse.MapValidationError(err.(validator.ValidationErrors))
+		httpresponse.WriteErrorResponse(w,"badRequest", *fieldErrors, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	err = a.svc.Register(ctx, newUser)
 	if err != nil {
 		slog.Error(err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err == csterr.ErrIsAlreadyExist {
+			httpresponse.WriteErrorResponse(w, "error", nil, "user already exist", http.StatusConflict)
+			return 
+		}
+		httpresponse.WriteErrorResponse(w, "error", nil, "unexpected internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "user successfully registered"})
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "success",
+		"message": "user registered successfully",
+	})
 }
 
 func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -70,13 +78,13 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	loginReq := struct {
-		Email    string `validate:"required,email"`
-		Password string `validate:"required,min=8"`
+		Email    string `json:"email" validate:"required,email"`
+		Password string `json:"password" validate:"required"`
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
 		slog.Error("error decoding request body", "message", err)
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		httpresponse.WriteErrorResponse(w,"badRequest",nil, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -84,14 +92,15 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	err := validate.Struct(loginReq)
 	if err != nil {
 		slog.Error(err.Error())
-		errors := err.(validator.ValidationErrors)
-		http.Error(w, fmt.Sprintf("request body error : %s", errors), http.StatusBadRequest)
+		fieldErrors := httpresponse.MapValidationError(err.(validator.ValidationErrors))
+		httpresponse.WriteErrorResponse(w,"badRequest", *fieldErrors, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	jwtToken, err := a.svc.Login(ctx, loginReq.Email, loginReq.Password)
 	if err != nil {
-		http.Error(w, "An unexpected error occurred on the server", http.StatusInternalServerError)
+		slog.Error(err.Error())
+		httpresponse.WriteErrorResponse(w,"unauthorized", nil,"invalid credentials",http.StatusUnauthorized)
 		return
 	}
 
@@ -111,4 +120,19 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"status":  "success",
 		"message": "Login Successfull",
 	})
+}
+
+
+func (a *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	c := http.Cookie{
+		Name:     "token",
+		Value:    "",
+		HttpOnly: true,
+		Path:     "/",
+		MaxAge: -1,
+	}
+
+	http.SetCookie(w, &c)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"Message": "Logout Success"})	
 }

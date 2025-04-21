@@ -22,17 +22,17 @@ type AuthRepo interface {
 
 var argon2idHash = hashing.NewArgon2idHash(1, 16, 64*1024, 1, 32)
 
-type AuthService struct {
+type AuthUsecase struct {
 	AuthRepo
 }
 
-func NewAuthSerice(authRepo AuthRepo) *AuthService {
-	return &AuthService{
+func NewAuthUsecase(authRepo AuthRepo) *AuthUsecase {
+	return &AuthUsecase{
 		authRepo,
 	}
 }
 
-func (a *AuthService) Register(ctx context.Context, user model.User) error {
+func (a *AuthUsecase) Register(ctx context.Context, user model.User) error {
 	select {
 	case <-ctx.Done():
 		slog.Error("context passed")
@@ -63,12 +63,20 @@ func (a *AuthService) Register(ctx context.Context, user model.User) error {
 
 	err = a.AuthRepo.Register(ctx, user)
 	if err != nil {
+		slog.Error(err.Error())
 		return csterr.ErrInternal
 	}
 	return nil
 }
 
-func (a *AuthService) Login(ctx context.Context, email string, password string) (response *string, err error) {
+func (a *AuthUsecase) Login(ctx context.Context, email string, password string) (response *string, err error) {
+	select {
+	case <-ctx.Done():
+		slog.Error("context passed")
+		return nil, ctx.Err()
+	default:
+	}
+	
 	user, err := a.AuthRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err
@@ -87,12 +95,13 @@ func (a *AuthService) Login(ctx context.Context, email string, password string) 
 		return nil, err
 	}
 
-	isMatch, err := argon2idHash.Compare(decodedPassword, decodedSalt, user.Password)
+	isMatch, err := argon2idHash.Compare(decodedPassword, decodedSalt, password)
 	if err != nil {
 		slog.Error("error comparing password", "message", err)
-		return nil, nil
+		return nil, err
 	}
 	if !isMatch {
+		slog.Debug("isMatch result", "result", isMatch)
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
