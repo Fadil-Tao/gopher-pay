@@ -11,7 +11,8 @@ import (
 
 	"github.com/Fadil-Tao/gopher-pay/config"
 	"github.com/Fadil-Tao/gopher-pay/db"
-	"github.com/Fadil-Tao/gopher-pay/internal/transport/rest"
+	"github.com/Fadil-Tao/gopher-pay/internal"
+	"github.com/Fadil-Tao/gopher-pay/internal/transport/middleware"
 	loggers "github.com/Fadil-Tao/gopher-pay/utils/logger"
 )
 
@@ -25,16 +26,17 @@ func main() {
 		slog.Error("database config error", "error" , err)
 	}
 	defer Conn.Close() 
-
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthcheck", rest.HealthCheck)
+	
+	stack := middleware.CreateStack(
+		middleware.Logging,
+	)
+	mux := internal.Register(Conn)
 	api := http.NewServeMux()
 	api.Handle("/api/", http.StripPrefix("/api", mux))
 	
 	server := http.Server{
 		Addr:  ":" + cfg.Server.Port,
-		Handler: api,
+		Handler: stack(api),
 	}
 
 	go func() {
