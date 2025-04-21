@@ -25,7 +25,7 @@ func (u *UserRepo) Register(ctx context.Context, user model.User) error {
 		return ctx.Err()
 	default:
 	}
-	query := `insert into user(id,email,name,password,salt) values (?,?,?,?,?)`
+	query := `insert into users(email,name,password,salt) values ($1, $2, $3, $4)`
 	stmt, err := u.Db.Prepare(query)
 	if err != nil {
 		slog.Error("error preparing statemet", "message", err)
@@ -48,7 +48,7 @@ func (u *UserRepo) IsUserExist(ctx context.Context, email string) (bool, error) 
 	default:
 	}
 
-	query := `select count(id) from user where email = ?`
+	query := `select count(id) from users where email = $1`
 	stmt, err := u.Db.Prepare(query)
 	if err != nil {
 		slog.Error("error preparing statement", "error", err)
@@ -75,15 +75,16 @@ func (u *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 	default:
 	}
 
-	query := `select id,email,name,password,salt,updated_at,created_at from user where email = ?`
+	query := `select id,email,name,password,salt,updated_at,created_at from users where email = $1`
 	stmt, err := u.Db.Prepare(query)
 	if err != nil {
 		return nil, csterr.ErrInternal
 	}
 	defer stmt.Close()
 
-	var user *model.User
-	err = stmt.QueryRowContext(ctx, email).Scan(&user)
+	user := &model.User{}
+	
+	err = stmt.QueryRowContext(ctx, email).Scan(&user.Id, &user.Email, &user.Name,&user.Password, &user.Salt, &user.UpdatedAt, &user.CreatedAt)
 	switch {
 	case err == sql.ErrNoRows : 
 		slog.Error(err.Error())
