@@ -4,15 +4,15 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     volumes:
-      - .:/gopher-pay
-      - /gopher-pay/bin 
+      - .:/gopher-pay    
+      - gopherpay_bin:/gopher-pay/bin
     env_file: .env
     ports:
       - "8080:8080"
     depends_on:
       db : 
         condition : service_healthy
-    command: ["sh", "-c", "/gopher-pay/bin/migrate up && air"]
+    command: ["sh", "-c", "go build -o ./bin/api ./cmd/api && go build -o ./bin/migrate ./cmd/migrate && chmod +x ./bin/api ./bin/migrate && ./bin/migrate up && air"]
   db: 
     image: postgres:alpine
     environment:
@@ -20,7 +20,7 @@ services:
       - POSTGRES_USER=gopherpay_user
       - POSTGRES_PASSWORD=gopherpay_pass
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gopherpay_user -d gopherpay_db"]
       interval: 1m30s
@@ -33,3 +33,4 @@ services:
 
 volumes:
   postgres_data:
+  gopherpay_bin:
