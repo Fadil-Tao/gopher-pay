@@ -15,20 +15,24 @@ import (
 )
 
 type AuthRepo interface {
-	Register(ctx context.Context, user model.User) error
+	Register(ctx context.Context, user model.User, createFn func(userId int) error )error
 	IsUserExist(ctx context.Context, email string) (bool, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
+	GetByPhone(ctx context.Context, phone string) (*model.User, error)
 }
 
 var argon2idHash = hashing.NewArgon2idHash(1, 16, 64*1024, 1, 32)
 
 type AuthUsecase struct {
 	AuthRepo
+	WalletRepo
+
 }
 
-func NewAuthUsecase(authRepo AuthRepo) *AuthUsecase {
+func NewAuthUsecase(authRepo AuthRepo,walletRepo WalletRepo) *AuthUsecase {
 	return &AuthUsecase{
 		authRepo,
+		walletRepo,
 	}
 }
 
@@ -40,13 +44,24 @@ func (a *AuthUsecase) Register(ctx context.Context, user model.User) error {
 	default:
 	}
 
-	isUserExist, err := a.AuthRepo.IsUserExist(ctx, user.Email)
-	if err != nil {
+	isEmailExist, err := a.AuthRepo.GetByEmail(ctx, user.Email)
+	if err != nil && err != csterr.ErrNotFound {
 		slog.Error(err.Error())
-		return csterr.ErrInternal
+		return err
 	}
-	if isUserExist {
-		return csterr.ErrIsAlreadyExist
+
+	isPhoneExist, err := a.AuthRepo.GetByPhone(ctx, user.Phone)
+	if err != nil && err != csterr.ErrNotFound {
+		slog.Error(err.Error())
+		return err
+	}
+
+	if isEmailExist != nil {
+		return csterr.ErrEmailAlreadyUsed
+	}
+
+	if isPhoneExist != nil {
+		return csterr.ErrPhoneAlreadyUsed
 	}
 
 	hashedPassword, err := argon2idHash.GenerateHash(user.Password, nil)
@@ -61,12 +76,9 @@ func (a *AuthUsecase) Register(ctx context.Context, user model.User) error {
 	user.Password = encodedPassword
 	user.Salt = encodedSalt
 
-	err = a.AuthRepo.Register(ctx, user)
-	if err != nil {
-		slog.Error(err.Error())
-		return csterr.ErrInternal
-	}
-	return nil
+	return a.AuthRepo.Register(ctx, user, func(userId int) error{
+		return a.CreateWallet(ctx, userId)
+	})
 }
 
 func (a *AuthUsecase) Login(ctx context.Context, email string, password string) (response *string, err error) {
@@ -76,7 +88,7 @@ func (a *AuthUsecase) Login(ctx context.Context, email string, password string) 
 		return nil, ctx.Err()
 	default:
 	}
-	
+
 	user, err := a.AuthRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, err

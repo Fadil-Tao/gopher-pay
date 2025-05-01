@@ -13,18 +13,18 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-type AuthService interface {
+type AuthUsecase interface {
 	Register(ctx context.Context, user model.User) error
 	Login(ctx context.Context, email string, password string) (response *string, err error)
 }
 
 type AuthHandler struct {
-	svc AuthService
+	svc AuthUsecase
 }
 
-func NewAuthHandler(authService AuthService) *AuthHandler {
+func NewAuthHandler(authUsecase AuthUsecase) *AuthHandler {
 	return &AuthHandler{
-		svc: authService,
+		svc: authUsecase,
 	}
 }
 
@@ -38,7 +38,7 @@ func (a *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
 		slog.Error(err.Error())
-		httpresponse.WriteErrorResponse(w, "error", nil , "invalid request", http.StatusBadRequest)
+		httpresponse.WriteErrorResponse(w, "error", nil, "invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -48,16 +48,23 @@ func (a *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error(err.Error())
 		fieldErrors := httpresponse.MapValidationError(err.(validator.ValidationErrors))
-		httpresponse.WriteErrorResponse(w,"badRequest", *fieldErrors, "invalid request body", http.StatusBadRequest)
+		httpresponse.WriteErrorResponse(w, "badRequest", *fieldErrors, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	err = a.svc.Register(ctx, newUser)
 	if err != nil {
 		slog.Error(err.Error())
-		if err == csterr.ErrIsAlreadyExist {
-			httpresponse.WriteErrorResponse(w, "error", nil, "user already exist", http.StatusConflict)
-			return 
+		fields := map[string][]string{}
+		switch err {
+		case csterr.ErrEmailAlreadyUsed:
+			fields["email"] = []string{"email already used"}
+			httpresponse.WriteErrorResponse(w, "error", fields, "conflict", http.StatusConflict)
+			return
+		case csterr.ErrPhoneAlreadyUsed:
+			fields["phone"] = []string{"phone number already used"}
+			httpresponse.WriteErrorResponse(w, "error", fields, "conflict", http.StatusConflict)
+			return
 		}
 		httpresponse.WriteErrorResponse(w, "error", nil, "unexpected internal server error", http.StatusInternalServerError)
 		return
@@ -84,7 +91,7 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
 		slog.Error("error decoding request body", "message", err)
-		httpresponse.WriteErrorResponse(w,"badRequest",nil, "invalid request body", http.StatusBadRequest)
+		httpresponse.WriteErrorResponse(w, "badRequest", nil, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -93,14 +100,14 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error(err.Error())
 		fieldErrors := httpresponse.MapValidationError(err.(validator.ValidationErrors))
-		httpresponse.WriteErrorResponse(w,"badRequest", *fieldErrors, "invalid request body", http.StatusBadRequest)
+		httpresponse.WriteErrorResponse(w, "badRequest", *fieldErrors, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	jwtToken, err := a.svc.Login(ctx, loginReq.Email, loginReq.Password)
 	if err != nil {
 		slog.Error(err.Error())
-		httpresponse.WriteErrorResponse(w,"unauthorized", nil,"invalid credentials",http.StatusUnauthorized)
+		httpresponse.WriteErrorResponse(w, "unauthorized", nil, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
@@ -110,7 +117,6 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Now().Add(24 * time.Hour),
 		HttpOnly: true,
-		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	}
 
@@ -122,17 +128,16 @@ func (a *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 func (a *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	c := http.Cookie{
 		Name:     "token",
 		Value:    "",
 		HttpOnly: true,
 		Path:     "/",
-		MaxAge: -1,
+		MaxAge:   -1,
 	}
 
 	http.SetCookie(w, &c)
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"Message": "Logout Success"})	
+	json.NewEncoder(w).Encode(map[string]string{"Message": "Logout Success"})
 }
