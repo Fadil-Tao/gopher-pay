@@ -19,25 +19,34 @@ func NewUserRepo(db *sql.DB) *UserRepo {
 	}
 }
 
-func (u *UserRepo) Register(ctx context.Context, user model.User) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	query := `insert into users(email,name,password,salt) values ($1, $2, $3, $4)`
-	stmt, err := u.Db.Prepare(query)
-	if err != nil {
-		slog.Error("error preparing statemet", "message", err)
-		return csterr.ErrInternal
-	}
+func (u *UserRepo) Register(ctx context.Context, user model.User, createFn func(userId int)error) error {
+	return runInTx(u.Db, func(tx *sql.Tx) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		query := `insert into users(email,name,password,salt,phone) values ($1, $2, $3, $4,$5) returning id`
+		stmt, err := u.Db.Prepare(query)
+		if err != nil {
+			slog.Error("error preparing statement", "message", err)
+			return csterr.ErrInternal
+		}
+		defer stmt.Close()
 
-	_, err = stmt.ExecContext(ctx, user.Email, user.Name, user.Password, user.Salt)
-	if err != nil {
-		slog.Error("Error inserting data", "message", err)
-		return csterr.ErrInternal
-	}
-	return nil
+		var newUserId *int
+		err = stmt.QueryRowContext(ctx, user.Email, user.Name, user.Password, user.Salt, user.Phone).Scan(&newUserId)
+		if err != nil {
+			slog.Error("Error inserting data", "message", err)
+			return csterr.ErrInternal
+		}
+		err = createFn(*newUserId)
+		if err != nil {
+			slog.Error(err.Error())
+			return err
+		}
+		return nil
+	})
 }
 
 func (u *UserRepo) IsUserExist(ctx context.Context, email string) (bool, error) {
@@ -64,8 +73,33 @@ func (u *UserRepo) IsUserExist(ctx context.Context, email string) (bool, error) 
 	return count > 0, nil
 }
 
-func (u *UserRepo) DeleteProfile(ctx context.Context) error {
-	return nil
+func (u *UserRepo) GetByPhone(ctx context.Context, phone string) (*model.User, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	query := `select id,email,name,password,salt,phone,updated_at,created_at from users where phone = $1`
+	stmt, err := u.Db.Prepare(query)
+	if err != nil {
+		slog.Error(err.Error())
+		return nil, csterr.ErrInternal
+	}
+	defer stmt.Close()
+
+	user := &model.User{}
+
+	err = stmt.QueryRowContext(ctx, phone).Scan(&user.Id, &user.Email, &user.Name, &user.Password, &user.Salt, &user.Password, &user.UpdatedAt, &user.CreatedAt)
+	switch {
+	case err == sql.ErrNoRows:
+		slog.Error(err.Error())
+		return nil, csterr.ErrNotFound
+	case err != nil:
+		slog.Error(err.Error())
+		return nil, csterr.ErrInternal
+	}
+	return user, nil
 }
 
 func (u *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
@@ -75,21 +109,22 @@ func (u *UserRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 	default:
 	}
 
-	query := `select id,email,name,password,salt,updated_at,created_at from users where email = $1`
+	query := `select id,email,name,password,salt,phone,updated_at,created_at from users where email = $1`
 	stmt, err := u.Db.Prepare(query)
 	if err != nil {
+		slog.Error(err.Error())
 		return nil, csterr.ErrInternal
 	}
 	defer stmt.Close()
 
 	user := &model.User{}
-	
-	err = stmt.QueryRowContext(ctx, email).Scan(&user.Id, &user.Email, &user.Name,&user.Password, &user.Salt, &user.UpdatedAt, &user.CreatedAt)
+
+	err = stmt.QueryRowContext(ctx, email).Scan(&user.Id, &user.Email, &user.Name, &user.Password, &user.Salt, &user.Phone, &user.UpdatedAt, &user.CreatedAt)
 	switch {
-	case err == sql.ErrNoRows : 
+	case err == sql.ErrNoRows:
 		slog.Error(err.Error())
 		return nil, csterr.ErrNotFound
-	case err != nil : 
+	case err != nil:
 		slog.Error(err.Error())
 		return nil, csterr.ErrInternal
 	}
