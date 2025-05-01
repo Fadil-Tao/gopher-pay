@@ -9,11 +9,21 @@ import (
 )
 
 func Register(conn *sql.DB) *http.ServeMux{
-	userRepo := pgsql.NewUserRepo(conn)
-	
-	authUseCase := usecase.NewAuthUsecase(userRepo)
-	userUseCase := usecase.NewUserUsecase(userRepo)
 
-	router :=  NewHttpRouterInstance(*userUseCase, *authUseCase)
+	// repository layer injection
+	userRepo := pgsql.NewUserRepo(conn)
+	walletRepo := pgsql.NewWalletRepo(conn)
+	transactRepo := pgsql.NewTransactionRepo(conn)
+
+	// use case layer injection
+	authUseCase := usecase.NewAuthUsecase(userRepo,walletRepo)
+	userUseCase := usecase.NewUserUsecase(userRepo)
+	transactUsecase := usecase.NewTransactionUsecase(transactRepo, walletRepo)
+
+	router :=  NewHttpRouterInstance(
+		*userUseCase, 
+		*authUseCase, 
+		*transactUsecase,
+	)
 	return router.NewRestRouter()
 }
