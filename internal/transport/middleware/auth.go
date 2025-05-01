@@ -61,3 +61,17 @@ func RequireAuth(next http.Handler) http.Handler{
 		next.ServeHTTP(w, r)
 	})
 }
+
+func GetUserId(w http.ResponseWriter, r *http.Request) (int, error) {
+	claims, ok := r.Context().Value(tokenKey).(jwt.MapClaims)
+	if !(ok) {
+		return 0, csterr.ErrUnauthorized
+	}
+
+	userIdFloat, ok := claims["id"].(float64)
+	if !ok {
+		return 0,csterr.ErrUnauthorized
+	}
+	userId := int(userIdFloat)
+	return userId, nil
+}
